@@ -1,0 +1,45 @@
+# --- C++ / Qt ---
+*.o
+*.obj
+*.exe
+*.dll
+*.so
+*.dylib
+*.pdb
+*.ilk
+*.exp
+*.lib
+
+# --- Qt Creator ---
+*.pro.user
+*.qmlc
+*.jsc
+Makefile*
+build/
+debug/
+release/
+*.autosave
+
+# --- CMake ---
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+build/
+
+# --- Временные файлы ОС ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Конфигурации IDE ---
+.vs/
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- Пароли и секреты ---
+**/config.ini
+**/.env
+**/passwords.txt
+**/credentials.json
