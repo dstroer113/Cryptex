@@ -1,0 +1,6 @@
+<RCC>
+    <qresource prefix="/certs">
+        <file>certs/ca.crt</file>
+        <file>certs/ca.key</file>
+    </qresource>
+</RCC>

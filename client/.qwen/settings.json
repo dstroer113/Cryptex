@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mingw32-make *)",
+      "Bash(d:\\prog\\projects\\cryptex\\client\\build\\desktop_qt_6_7_3_mingw_64_bit-debug\\debug\\client.exe)",
+      "Bash(findstr *)",
+      "Bash(del *)",
+      "Bash(copy *)",
+      "Bash(where *)",
+      "Bash(taskkill *)",
+      "Bash(timeout *)",
+      "Bash(cd *)",
+      "Bash(replace *)",
+      "Bash(set-content *)",
+      "Bash(powershell *)",
+      "Bash(dir *)",
+      "Bash(mkdir *)"
+    ]
+  },
+  "$version": 3
+}
