@@ -83,6 +83,7 @@ void TransfersTab::setupUi()
 
     m_contactCombo = new QComboBox(sendGroup);
     m_contactCombo->setMinimumWidth(160);
+    m_contactCombo->setFixedHeight(42);
     m_contactCombo->setPlaceholderText(tr("Выберите контакт..."));
     connect(m_contactCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &TransfersTab::onContactSelected);
@@ -111,7 +112,7 @@ void TransfersTab::setupUi()
     m_selectedFilePath = new QLineEdit(sendGroup);
     m_selectedFilePath->setReadOnly(true);
     m_selectedFilePath->setPlaceholderText(tr("Выберите файл для отправки..."));
-    m_selectedFilePath->setFixedHeight(32);
+    m_selectedFilePath->setFixedHeight(42);
     fileRow->addWidget(m_selectedFilePath);
 
     m_selectFileButton = new QPushButton(tr("📂 Обзор"), sendGroup);
@@ -164,13 +165,12 @@ void TransfersTab::setupUi()
     pendingLayout->addWidget(pendingTitle);
 
     m_pendingTable = new QTableWidget(this);
-    m_pendingTable->setColumnCount(5);
-    m_pendingTable->setHorizontalHeaderLabels({tr("От"), tr("Файл"), tr("Размер"), tr("Статус"), tr("Действие")});
+    m_pendingTable->setColumnCount(4);
+    m_pendingTable->setHorizontalHeaderLabels({tr("От"), tr("Файл"), tr("Размер"), tr("Статус")});
     m_pendingTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     m_pendingTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
     m_pendingTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
     m_pendingTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
-    m_pendingTable->horizontalHeader()->setSectionResizeMode(4, QHeaderView::ResizeToContents);
     m_pendingTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_pendingTable->setSelectionMode(QAbstractItemView::SingleSelection);
     m_pendingTable->setEditTriggers(QAbstractItemView::NoEditTriggers);

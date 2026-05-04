@@ -45,17 +45,17 @@ private:
     void loadSettings();
     void saveSettings();
 
-    QWidget* createSecurityTab();
-    QWidget* createConnectionTab();
-    QWidget* createAboutTab();
+    void updateConnectionStatus();
 
     NetworkClient *m_networkClient;
     QTabWidget *m_tabWidget;
 
     // Безопасность
+    QLabel    *m_labelPassStatus;
     QLineEdit *m_editOldPassword;
     QLineEdit *m_editNewPassword;
     QLineEdit *m_editConfirmPassword;
+    QPushButton *m_btnChangePassword;
 
     // Подключение
     QLineEdit *m_editServerHost;

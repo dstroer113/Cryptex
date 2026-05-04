@@ -7,6 +7,7 @@
 #include <QFile>
 #include <QMutex>
 #include <QDateTime>
+#include <QProcess>
 
 #include "src/cryptoserver.h"
 #include "src/databasemanager.h"
