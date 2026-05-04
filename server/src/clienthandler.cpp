@@ -8,7 +8,6 @@
 #include <QJsonArray>
 #include <QDateTime>
 #include <QDebug>
-#include <cstdio>
 #include <openssl/rand.h>
 #include <openssl/sha.h>
 #include <openssl/evp.h>
@@ -34,10 +33,7 @@ ClientHandler::ClientHandler(QSslSocket *socket, QSslConfiguration sslConfig,
         m_socket->setPeerVerifyMode(QSslSocket::VerifyNone);
         m_socket->setParent(this);
     }
-    fprintf(stderr, "[CH] Created for %s (encrypted=%d)\n",
-            m_socket ? qPrintable(m_socket->peerAddress().toString()) : "N/A",
-            m_socket ? m_socket->isEncrypted() : 0);
-    fflush(stderr);
+    qInfo() << "[CH] Created for" << (m_socket ? m_socket->peerAddress().toString() : "N/A");
 }
 
 ClientHandler::~ClientHandler()
@@ -53,16 +49,11 @@ ClientHandler::~ClientHandler()
 void ClientHandler::start()
 {
     if (!m_socket || m_socket->state() != QAbstractSocket::ConnectedState) {
-        fprintf(stderr, "[CH] Socket not connected, aborting\n");
-        fflush(stderr);
+        qWarning() << "[CH] Socket not connected, aborting";
         emit finished();
         deleteLater();
         return;
     }
-
-    fprintf(stderr, "[CH] start() socket=%p encrypted=%d\n",
-            (void*)m_socket, m_socket->isEncrypted());
-    fflush(stderr);
 
     connect(m_socket, &QSslSocket::encrypted, this, &ClientHandler::onEncrypted);
     connect(m_socket, &QSslSocket::readyRead, this, &ClientHandler::onReadyRead);
@@ -70,25 +61,17 @@ void ClientHandler::start()
     connect(m_socket, &QSslSocket::errorOccurred, this, &ClientHandler::onError);
 
     if (m_socket->isEncrypted()) {
-        fprintf(stderr, "[CH] Socket already encrypted, calling onEncrypted()\n");
-        fflush(stderr);
         onEncrypted();
     } else {
-        fprintf(stderr, "[CH] Starting server encryption...\n");
-        fflush(stderr);
         m_socket->startServerEncryption();
     }
 }
 
 void ClientHandler::onEncrypted()
 {
-    fprintf(stderr, "[CH] SSL handshake complete: %s\n", qPrintable(clientIP()));
-    fflush(stderr);
+    qInfo() << "[CH] SSL handshake complete:" << clientIP();
     m_sessionKey = generateSessionKey();
     m_hmacKey = generateSessionKey();
-
-    fprintf(stderr, "[CH] Sending SESSION_KEY to client\n");
-    fflush(stderr);
 
     QJsonObject keyMsg = createMessage("SESSION_KEY", {
         {"session_key", QString(m_sessionKey.toHex())},
@@ -97,8 +80,6 @@ void ClientHandler::onEncrypted()
     QByteArray packet = serializePacketPlain(keyMsg);
     if (!packet.isEmpty() && m_socket && m_socket->isOpen()) {
         m_socket->write(packet);
-        fprintf(stderr, "[CH] SESSION_KEY sent (%d bytes)\n", packet.size());
-        fflush(stderr);
     }
 }
 
@@ -106,9 +87,6 @@ void ClientHandler::onReadyRead()
 {
     QByteArray data = m_socket->readAll();
     m_readBuffer.append(data);
-    fprintf(stderr, "[CH] onReadyRead: +%d bytes, buffer=%d bytes, encrypted=%d\n",
-            data.size(), m_readBuffer.size(), m_socket->isEncrypted());
-    fflush(stderr);
 
     if (m_readBuffer.size() > MAX_BUFFER_SIZE) {
         qWarning() << "[ClientHandler] Buffer overflow:" << clientIP();
@@ -129,8 +107,6 @@ void ClientHandler::onReadyRead()
         }
 
         int totalSize = 4 + payloadSize + 4 + 32;
-        fprintf(stderr, "[CH] expect=%d have=%d payload=%u\n", totalSize, m_readBuffer.size(), payloadSize);
-        fflush(stderr);
         if (m_readBuffer.size() < totalSize) return;
 
         QByteArray packet = m_readBuffer.left(totalSize);
@@ -138,12 +114,9 @@ void ClientHandler::onReadyRead()
 
         QJsonObject msg = deserializePacket(packet, m_sessionKey, m_hmacKey);
         if (msg.isEmpty()) {
-            fprintf(stderr, "[CH] deserializePacket FAILED!\n");
-            fflush(stderr);
+            qWarning() << "[CH] deserializePacket FAILED";
             continue;
         }
-        fprintf(stderr, "[CH] CMD: %s\n", msg["cmd"].toString().toUtf8().constData());
-        fflush(stderr);
 
         if (!checkRateLimit()) {
             sendResponse(createErrorResponse("Rate limit exceeded"));
@@ -262,8 +235,7 @@ void ClientHandler::handleAuthLogin(const QJsonObject &msg)
     QString username = data["username"].toString().trimmed();
     QString passwordHash = data["password_hash"].toString();
 
-    fprintf(stderr, "[CH] LOGIN username='%s'\n", qPrintable(username));
-    fflush(stderr);
+    qInfo() << "[CH] LOGIN username:" << username;
 
     if (username.isEmpty() || passwordHash.isEmpty()) {
         sendResponse(createErrorResponse("Username and password required"));
@@ -575,9 +547,8 @@ void ClientHandler::handleFileSendInit(const QJsonObject &msg)
     if (receiver.id < 0) { sendResponse(createErrorResponse("Receiver not found")); return; }
 
     bool areContactsOk = m_database->areContacts(m_userId, receiver.id);
-    fprintf(stderr, "[CH] FILE_SEND_INIT sender=%d receiver=%d(%s) areContacts=%d\n",
-            m_userId, receiver.id, qPrintable(receiverName), areContactsOk);
-    fflush(stderr);
+    qInfo() << "[CH] FILE_SEND_INIT sender:" << m_userId << "receiver:" << receiver.id
+            << "(" << receiverName << ") areContacts:" << areContactsOk;
     if (!areContactsOk) {
         sendResponse(createErrorResponse("Receiver must be in contacts"));
         return;

@@ -20,6 +20,10 @@ HEADERS += \
     src/clienthandler.h \
     src/protocol.h
 
+# Пример конфига
+DISTFILES += \
+    server.conf.example
+
 TRANSLATIONS += \
     server_ru_RU.ts
 CONFIG += lrelease
