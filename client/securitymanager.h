@@ -18,8 +18,7 @@
 #include <QMutex>
 #include <QMutexLocker>
 #include <cstring>
-#include <openssl/evp.h>
-#include <openssl/rand.h>
+// OpenSSL removed from header to reduce memory usage during moc compilation
 
 class SecurityManager : public QObject
 {

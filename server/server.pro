@@ -1,32 +1,29 @@
-QT       += core gui
+QT       += core network sql
 
-greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
+CONFIG += c++17 console
 
-CONFIG += c++17
+# Пути к OpenSSL (MSYS2 UCRT64)
+INCLUDEPATH += F:/msys64/ucrt64/include
+LIBS += -LF:/msys64/ucrt64/lib -lcrypto -lssl
 
-# You can make your code fail to compile if it uses deprecated APIs.
-# In order to do so, uncomment the following line.
-#DEFINES += QT_DISABLE_DEPRECATED_BEFORE=0x060000    # disables all the APIs deprecated before Qt 6.0.0
+QMAKE_CXXFLAGS += -Wno-expansion-to-defined -pipe
 
 SOURCES += \
     main.cpp \
-    mainwindow.cpp
+    src/cryptoserver.cpp \
+    src/databasemanager.cpp \
+    src/clienthandler.cpp
 
 HEADERS += \
-    mainwindow.h
-
-FORMS += \
-    mainwindow.ui
+    src/cryptoserver.h \
+    src/databasemanager.h \
+    src/clienthandler.h \
+    src/protocol.h
 
 TRANSLATIONS += \
     server_ru_RU.ts
 CONFIG += lrelease
 CONFIG += embed_translations
-
-# Default rules for deployment.
-qnx: target.path = /tmp/$${TARGET}/bin
-else: unix:!android: target.path = /opt/$${TARGET}/bin
-!isEmpty(target.path): INSTALLS += target
 
 DISTFILES += \
     db/01_tables.sql \

@@ -4,11 +4,7 @@
 #include <QObject>
 #include <QString>
 #include <QByteArray>
-
-#ifdef Q_OS_WIN
-#include <windows.h>
-#include <wincred.h>
-#endif
+// Windows headers removed from header to avoid moc crashes
 
 class CredentialManager : public QObject
 {

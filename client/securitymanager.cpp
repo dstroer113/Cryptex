@@ -1,5 +1,7 @@
 #include "SecurityManager.h"
 #include <QRegularExpression>
+#include <openssl/evp.h>
+#include <openssl/rand.h>
 #include <QNetworkAccessManager>
 #include <QSettings>
 #include <QCryptographicHash>

@@ -14,15 +14,9 @@
 #include <QMutexLocker>
 #include <QSslSocket>
 #include <cstring>
-#include <openssl/aes.h>
-#include <openssl/evp.h>
-#include <openssl/rand.h>
-#include <openssl/rsa.h>
-#include <openssl/pem.h>
-#include <openssl/err.h>
-#include <openssl/sha.h>
-#include <openssl/hmac.h>
-#include <openssl/kdf.h>
+// OpenSSL headers moved to .cpp to reduce moc memory usage
+// Forward declare EVP_PKEY to avoid including openssl headers
+struct evp_pkey_st;
 
 class CryptoEngine : public QObject
 {
@@ -64,8 +58,8 @@ public:
     CryptoEngine(const CryptoEngine&) = delete;
     CryptoEngine& operator=(const CryptoEngine&) = delete;
 
-    EVP_PKEY *m_rsaPrivateKey;
-    EVP_PKEY *m_rsaPublicKey;
+    evp_pkey_st *m_rsaPrivateKey;
+    evp_pkey_st *m_rsaPublicKey;
     mutable QMutex m_mutex;
 
     bool encryptAES256GCM(const QByteArray &plaintext, const QByteArray &key,

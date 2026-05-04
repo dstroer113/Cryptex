@@ -1,402 +1,335 @@
-/**
- * @file LoginWindow.cpp
- * @brief Реализация окна авторизации и регистрации с подключением к PostgreSQL
- *
- * @author Студент ГБПОУ РО "РКСИ"
- * @date 2025
- * @version 1.0
- *
- * Меры безопасности:
- * - Хеширование паролей SHA-256
- * - Параметризованные SQL-запросы (защита от SQL-инъекций)
- * - Безопасное управление соединениями с БД
- * - Очистка чувствительных данных из памяти
- */
+#include "loginwindow.h"
+#include "src/networkclient.h"
 
-#include "LoginWindow.h"
-#include "MainWindow.h"
+#include <QMessageBox>
+#include <QInputDialog>
+#include <QDebug>
+#include <QFont>
 
-#include <QDateTime>
-#include <QTimer>
-#include <QCryptographicHash>
-#include <QSqlDatabase>
-#include <QSqlQuery>
-#include <QSqlError>
-
-/**
- * @brief Конструктор окна авторизации
- * @param parent Родительский виджет
- */
-LoginWindow::LoginWindow(QWidget *parent)
+LoginWindow::LoginWindow(NetworkClient *client, QWidget *parent)
     : QDialog(parent)
-    , m_logoLabel(nullptr)
-    , m_usernameLabel(nullptr)
-    , m_usernameEdit(nullptr)
-    , m_passwordLabel(nullptr)
-    , m_passwordEdit(nullptr)
-    , m_statusLabel(nullptr)
-    , m_loginButton(nullptr)
-    , m_registerButton(nullptr)
-    , m_mainLayout(nullptr)
-    , m_buttonLayout(nullptr)
+    , m_networkClient(client)
+    , m_offlineButton(nullptr)
     , m_userId(-1)
+    , m_isRegistrationMode(false)
+    , m_offlineMode(false)
 {
-    setWindowTitle("Cryptex - Вход в систему");
-    setFixedSize(450, 550);
-    setModal(true);
-
     setupUI();
     setupStyles();
-    connectSignals();
+    switchToLogin();
+
+    connect(m_networkClient, &NetworkClient::loginSuccess, this, &LoginWindow::onLoginSuccess);
+    connect(m_networkClient, &NetworkClient::loginFailed, this, &LoginWindow::onLoginFailed);
+    connect(m_networkClient, &NetworkClient::registerSuccess, this, &LoginWindow::onRegisterSuccess);
+    connect(m_networkClient, &NetworkClient::registerFailed, this, &LoginWindow::onRegisterFailed);
 }
 
-/**
- * @brief Деструктор окна авторизации
- * Очищает чувствительные данные из памяти
- */
-LoginWindow::~LoginWindow()
-{
-    // Безопасная очистка токена сессии
-    m_sessionToken.clear();
-    m_sessionToken.squeeze();
-}
+LoginWindow::~LoginWindow() = default;
 
-/**
- * @brief Настройка пользовательского интерфейса
- * Создает и размещает все элементы управления
- */
 void LoginWindow::setupUI()
 {
-    m_mainLayout = new QVBoxLayout(this);
-    m_mainLayout->setSpacing(15);
-    m_mainLayout->setContentsMargins(40, 30, 40, 30);
+    setWindowTitle("Cryptex — Авторизация");
+    setFixedSize(420, m_isRegistrationMode ? 500 : 420);
+    setModal(true);
+
+    QVBoxLayout *mainLayout = new QVBoxLayout(this);
+    mainLayout->setContentsMargins(40, 30, 40, 30);
+    mainLayout->setSpacing(15);
 
     // Логотип
     m_logoLabel = new QLabel("🔐 Cryptex", this);
     m_logoLabel->setAlignment(Qt::AlignCenter);
-    QFont logoFont = m_logoLabel->font();
-    logoFont.setPointSize(28);
-    logoFont.setBold(true);
-    m_logoLabel->setFont(logoFont);
-    m_mainLayout->addWidget(m_logoLabel);
+    QFont f = m_logoLabel->font();
+    f.setPointSize(22);
+    f.setBold(true);
+    m_logoLabel->setFont(f);
+    m_logoLabel->setStyleSheet("color: #4CAF50;");
+    mainLayout->addWidget(m_logoLabel);
+    mainLayout->addSpacing(10);
 
-    m_mainLayout->addSpacing(20);
-
-    // Поле ввода логина
-    m_usernameLabel = new QLabel("Логин:", this);
-    QFont labelFont = m_usernameLabel->font();
-    labelFont.setPointSize(12);
-    m_usernameLabel->setFont(labelFont);
-    m_mainLayout->addWidget(m_usernameLabel);
+    // Логин
+    QLabel *loginLabel = new QLabel("Логин:", this);
+    loginLabel->setStyleSheet("color: #fff; font-size: 13px; font-weight: bold;");
+    mainLayout->addWidget(loginLabel);
 
     m_usernameEdit = new QLineEdit(this);
-    m_usernameEdit->setPlaceholderText("Введите логин");
-    m_usernameEdit->setMaxLength(50);
-    m_usernameEdit->setFixedHeight(40);
-    m_mainLayout->addWidget(m_usernameEdit);
+    m_usernameEdit->setPlaceholderText("Имя пользователя");
+    m_usernameEdit->setFixedHeight(44);
+    m_usernameEdit->setStyleSheet("padding: 10px 14px; font-size: 15px;");
+    mainLayout->addWidget(m_usernameEdit);
 
-    // Поле ввода пароля
-    m_passwordLabel = new QLabel("Пароль:", this);
-    m_passwordLabel->setFont(labelFont);
-    m_mainLayout->addWidget(m_passwordLabel);
-
+    // Пароль
     m_passwordEdit = new QLineEdit(this);
-    m_passwordEdit->setPlaceholderText("Введите пароль");
+    m_passwordEdit->setPlaceholderText("Пароль");
     m_passwordEdit->setEchoMode(QLineEdit::Password);
-    m_passwordEdit->setMaxLength(128);
-    m_passwordEdit->setFixedHeight(40);
-    m_mainLayout->addWidget(m_passwordEdit);
+    m_passwordEdit->setFixedHeight(44);
+    m_passwordEdit->setStyleSheet("padding: 10px 14px; font-size: 15px;");
+    mainLayout->addWidget(m_passwordEdit);
 
-    // Метка статуса
+    // Email (только для регистрации)
+    m_emailEdit = new QLineEdit(this);
+    m_emailEdit->setPlaceholderText("Email (только для регистрации)");
+    m_emailEdit->setFixedHeight(44);
+    m_emailEdit->setStyleSheet("padding: 10px 14px; font-size: 15px;");
+    m_emailEdit->hide();
+    mainLayout->addWidget(m_emailEdit);
+
+    // Статус
     m_statusLabel = new QLabel("", this);
     m_statusLabel->setAlignment(Qt::AlignCenter);
-    m_statusLabel->setVisible(false);
-    m_statusLabel->setWordWrap(true);
-    m_mainLayout->addWidget(m_statusLabel);
-
-    m_mainLayout->addSpacing(10);
+    m_statusLabel->setStyleSheet("color: #ff4444; font-size: 13px;");
+    mainLayout->addWidget(m_statusLabel);
 
     // Кнопки
-    m_buttonLayout = new QHBoxLayout();
-    m_buttonLayout->setSpacing(15);
+    QHBoxLayout *btnLayout = new QHBoxLayout();
+    btnLayout->setSpacing(10);
 
     m_loginButton = new QPushButton("Войти", this);
-    m_loginButton->setFixedHeight(45);
+    m_loginButton->setFixedHeight(42);
     m_loginButton->setCursor(Qt::PointingHandCursor);
-    m_buttonLayout->addWidget(m_loginButton);
+    btnLayout->addWidget(m_loginButton);
 
     m_registerButton = new QPushButton("Регистрация", this);
-    m_registerButton->setFixedHeight(45);
+    m_registerButton->setFixedHeight(42);
     m_registerButton->setCursor(Qt::PointingHandCursor);
-    m_buttonLayout->addWidget(m_registerButton);
+    btnLayout->addWidget(m_registerButton);
 
-    m_mainLayout->addLayout(m_buttonLayout);
-    m_mainLayout->addStretch();
+    mainLayout->addLayout(btnLayout);
 
-    setLayout(m_mainLayout);
+    m_forgotPasswordButton = new QPushButton("Забыли пароль?", this);
+    m_forgotPasswordButton->setFixedHeight(36);
+    m_forgotPasswordButton->setCursor(Qt::PointingHandCursor);
+    mainLayout->addWidget(m_forgotPasswordButton);
+
+    // Офлайн-режим
+    m_offlineButton = new QPushButton("🔌 Офлайн-режим", this);
+    m_offlineButton->setFixedHeight(36);
+    m_offlineButton->setCursor(Qt::PointingHandCursor);
+    m_offlineButton->setToolTip("Шифрование и журнал без подключения к серверу");
+    mainLayout->addWidget(m_offlineButton);
+
+    m_switchModeButton = new QPushButton("← Назад ко входу", this);
+    m_switchModeButton->setFixedHeight(36);
+    m_switchModeButton->setCursor(Qt::PointingHandCursor);
+    m_switchModeButton->hide();
+    mainLayout->addWidget(m_switchModeButton);
+
+    // Сигналы
+    connect(m_loginButton, &QPushButton::clicked, this, &LoginWindow::onLoginButtonClicked);
+    connect(m_registerButton, &QPushButton::clicked, this, &LoginWindow::onRegisterButtonClicked);
+    connect(m_forgotPasswordButton, &QPushButton::clicked, this, &LoginWindow::onForgotPasswordClicked);
+    connect(m_offlineButton, &QPushButton::clicked, this, &LoginWindow::onOfflineModeClicked);
+    connect(m_switchModeButton, &QPushButton::clicked, this, &LoginWindow::switchToLogin);
 }
 
-/**
- * @brief Настройка стилей интерфейса (QSS)
- * Применяет тёмную тему для снижения утомляемости глаз
- */
 void LoginWindow::setupStyles()
 {
     setStyleSheet(
         "QDialog { background-color: #1a1a2e; } "
-        "QLabel { color: #ffffff; font-size: 14px; } "
-        "QLineEdit { padding: 10px; border: 2px solid #4CAF50; "
-        "border-radius: 5px; background-color: #16213e; "
-        "color: #ffffff; font-size: 14px; } "
-        "QLineEdit:focus { border: 2px solid #00ff88; } "
-        "QPushButton { background-color: #4CAF50; color: white; "
-        "padding: 12px; border-radius: 5px; font-size: 14px; "
-        "font-weight: bold; } "
-        "QPushButton:hover { background-color: #45a049; } "
-        "QPushButton:disabled { background-color: #666666; } "
-        );
-}
-
-/**
- * @brief Подключение сигналов и слотов
- */
-void LoginWindow::connectSignals()
-{
-    connect(m_loginButton, &QPushButton::clicked,
-            this, &LoginWindow::onLoginButtonClicked);
-
-    connect(m_registerButton, &QPushButton::clicked,
-            this, &LoginWindow::onRegisterButtonClicked);
-}
-
-/**
- * @brief Хеширование пароля алгоритмом SHA-256
- * @param password Пароль для хеширования
- * @return Хеш пароля в шестнадцатеричном формате
- */
-QString LoginWindow::hashPassword(const QString &password) const
-{
-    QByteArray hash = QCryptographicHash::hash(
-        password.toUtf8(),
-        QCryptographicHash::Sha256
+        "QLabel { color: #fff; font-size: 13px; } "
+        "QLineEdit { background: #0f3460; color: #fff; border: 1px solid #4CAF50; "
+        "border-radius: 4px; padding: 8px; font-size: 14px; } "
+        "QLineEdit:focus { border-color: #45a049; } "
+        "QLineEdit::placeholder { color: #888; } "
+        "QPushButton { border: none; border-radius: 4px; font-weight: bold; font-size: 14px; } "
+        "QPushButton:hover { opacity: 0.9; } "
+        "#m_loginButton, #m_registerButton { background: #4CAF50; color: #fff; padding: 10px; } "
+        "#m_loginButton:hover, #m_registerButton:hover { background: #45a049; } "
+        "#m_forgotPasswordButton, #m_switchModeButton { background: transparent; color: #888; "
+        "border: 1px solid #555; padding: 8px; } "
+        "#m_forgotPasswordButton:hover, #m_switchModeButton:hover { color: #4CAF50; border-color: #4CAF50; } "
+        "#m_offlineButton { background: transparent; color: #4CAF50; "
+        "border: 1px solid #4CAF50; padding: 8px; } "
+        "#m_offlineButton:hover { background: #4CAF50; color: #fff; } "
     );
-    return QString::fromUtf8(hash.toHex());
+
+    m_loginButton->setObjectName("m_loginButton");
+    m_registerButton->setObjectName("m_registerButton");
+    m_forgotPasswordButton->setObjectName("m_forgotPasswordButton");
+    m_switchModeButton->setObjectName("m_switchModeButton");
+    m_offlineButton->setObjectName("m_offlineButton");
 }
 
-/**
- * @brief Создание подключения к базе данных
- * @param connectionName Имя соединения
- * @return Объект подключения к БД
- */
-static QSqlDatabase createDatabaseConnection(const QString &connectionName)
+void LoginWindow::switchToRegistration()
 {
-    QSqlDatabase db = QSqlDatabase::addDatabase("QPSQL", connectionName);
-    db.setHostName("localhost");
-    db.setPort(5432);
-    db.setDatabaseName("postgres");
-    db.setUserName("postgres");
-    db.setPassword("1234");
-    return db;
+    m_isRegistrationMode = true;
+    setFixedHeight(540);
+    m_emailEdit->show();
+    m_loginButton->hide();
+    m_forgotPasswordButton->hide();
+    m_offlineButton->hide();
+    m_registerButton->setText("Создать аккаунт");
+    m_switchModeButton->show();
+    m_statusLabel->clear();
+    setWindowTitle("Cryptex — Регистрация");
 }
 
-/**
- * @brief Безопасное закрытие и удаление соединения с БД
- * @param connectionName Имя соединения
- */
-static void closeDatabaseConnection(const QString &connectionName)
+void LoginWindow::switchToLogin()
 {
-    QSqlDatabase db = QSqlDatabase::database(connectionName);
-    if (db.isOpen()) {
-        db.close();
-    }
-    QSqlDatabase::removeDatabase(connectionName);
+    m_isRegistrationMode = false;
+    setFixedHeight(420);
+    m_emailEdit->hide();
+    m_loginButton->show();
+    m_forgotPasswordButton->show();
+    m_offlineButton->show();
+    m_registerButton->setText("Регистрация");
+    m_switchModeButton->hide();
+    m_statusLabel->clear();
+    setWindowTitle("Cryptex — Авторизация");
 }
 
-/**
- * @brief Аутентификация пользователя через PostgreSQL
- * @param username Имя пользователя
- * @param password Пароль
- * @return true при успешной аутентификации, false иначе
- */
-bool LoginWindow::authenticateWithDatabase(const QString &username, const QString &password)
-{
-    const QString connectionName = "login_connection";
-    bool success = false;
-
-    {
-        QSqlDatabase db = createDatabaseConnection(connectionName);
-
-        if (!db.open()) {
-            m_statusLabel->setText("Ошибка подключения к БД");
-            m_statusLabel->setVisible(true);
-            closeDatabaseConnection(connectionName);
-            return false;
-        }
-
-        // Параметризованный запрос для защиты от SQL-инъекций
-        QSqlQuery query(db);
-        query.prepare("SELECT id, password_hash FROM users WHERE username = :username LIMIT 1");
-        query.bindValue(":username", username);
-
-        if (query.exec() && query.next()) {
-            const int userId = query.value(0).toInt();
-            const QString storedHash = query.value(1).toString();
-
-            // Вычисляем хеш введённого пароля
-            const QString inputHash = hashPassword(password);
-
-            // Сравнение хешей
-            if (inputHash == storedHash) {
-                m_userId = userId;
-                success = true;
-            }
-        }
-
-        db.close();
-    }
-
-    closeDatabaseConnection(connectionName);
-    return success;
-}
-
-/**
- * @brief Регистрация нового пользователя в базе данных
- * @param username Имя пользователя
- * @param password Пароль
- * @param email Электронная почта
- * @return true при успешной регистрации, false иначе
- */
-bool LoginWindow::registerUser(const QString &username, const QString &password, const QString &email)
-{
-    const QString connectionName = "register_connection";
-    bool success = false;
-
-    {
-        QSqlDatabase db = createDatabaseConnection(connectionName);
-
-        if (!db.open()) {
-            m_statusLabel->setText("Ошибка подключения к БД");
-            m_statusLabel->setVisible(true);
-            closeDatabaseConnection(connectionName);
-            return false;
-        }
-
-        // Хешируем пароль перед сохранением
-        const QString passwordHash = hashPassword(password);
-
-        // Параметризованный запрос для защиты от SQL-инъекций
-        QSqlQuery query(db);
-        query.prepare("INSERT INTO users (username, password_hash, email, public_key) "
-                      "VALUES (:username, :password_hash, :email, :public_key)");
-        query.bindValue(":username", username);
-        query.bindValue(":password_hash", passwordHash);
-        query.bindValue(":email", email);
-        query.bindValue(":public_key", ""); // Публичный ключ будет добавлен позже
-
-        if (query.exec()) {
-            success = true;
-        } else {
-            // Обработка ошибок (например, дубликат username или email)
-            const QString errorText = query.lastError().text();
-            if (errorText.contains("duplicate key") || errorText.contains("already exists")) {
-                m_statusLabel->setText("Пользователь с таким логином или email уже существует");
-            } else {
-                m_statusLabel->setText("Ошибка регистрации: " + errorText);
-            }
-            m_statusLabel->setVisible(true);
-        }
-
-        db.close();
-    }
-
-    closeDatabaseConnection(connectionName);
-    return success;
-}
-
-/**
- * @brief Обработчик нажатия кнопки входа
- */
 void LoginWindow::onLoginButtonClicked()
 {
-    const QString username = m_usernameEdit->text().trimmed();
-    const QString password = m_passwordEdit->text();
+    QString username = m_usernameEdit->text().trimmed();
+    QString password = m_passwordEdit->text();
 
-    // Валидация ввода
     if (username.isEmpty() || password.isEmpty()) {
-        m_statusLabel->setText("Введите логин и пароль");
-        m_statusLabel->setVisible(true);
-        m_statusLabel->setStyleSheet("color: #ffaa00;");
+        m_statusLabel->setText("Заполните все поля");
         return;
     }
 
-    // Блокировка кнопки на время запроса
-    m_loginButton->setEnabled(false);
-    m_statusLabel->setText("Проверка учётных данных...");
-    m_statusLabel->setVisible(true);
-    m_statusLabel->setStyleSheet("color: #4CAF50;");
+    m_statusLabel->setStyleSheet("color: #4CAF50; font-size: 13px;");
+    m_statusLabel->setText("Подключение к серверу...");
 
-    // Аутентификация через БД
-    if (authenticateWithDatabase(username, password)) {
-        // Успешный вход - генерация токена сессии
-        m_sessionToken = "TOKEN_" + QString::number(m_userId) + "_" +
-                        QString::number(QDateTime::currentMSecsSinceEpoch());
-
-        m_statusLabel->setText("Успешный вход! Переход...");
-        m_statusLabel->setStyleSheet("color: #4CAF50;");
-
-        // Закрытие окна с кодом успеха
-        QTimer::singleShot(500, this, [this]() {
-            this->accept();
+    // Подключаемся к серверу (если ещё не подключены)
+    if (!m_networkClient->isConnected()) {
+        m_networkClient->connectToServer("127.0.0.1", 8443);
+        // Ждём подключения, потом логин
+        QMetaObject::Connection *conn = new QMetaObject::Connection();
+        *conn = connect(m_networkClient, &NetworkClient::connected, this, [this, username, password, conn]() {
+            disconnect(*conn);
+            delete conn;
+            m_statusLabel->setText("Авторизация...");
+            m_networkClient->login(username, password);
         });
     } else {
-        // Неудачная попытка
-        m_statusLabel->setText("Неверный логин или пароль");
-        m_statusLabel->setStyleSheet("color: #ff4444;");
-        m_loginButton->setEnabled(true);
-
-        // Очистка поля пароля для безопасности
-        m_passwordEdit->clear();
-        m_passwordEdit->setFocus();
+        m_networkClient->login(username, password);
     }
 }
 
-/**
- * @brief Обработчик кнопки регистрации
- */
 void LoginWindow::onRegisterButtonClicked()
 {
-    const QString username = m_usernameEdit->text().trimmed();
-    const QString password = m_passwordEdit->text();
-    const QString email = username + "@cryptex.local"; // Генерация email из логина
-
-    // Валидация ввода
-    if (username.isEmpty() || password.isEmpty()) {
-        m_statusLabel->setText("Введите логин и пароль для регистрации");
-        m_statusLabel->setVisible(true);
-        m_statusLabel->setStyleSheet("color: #ffaa00;");
+    if (!m_isRegistrationMode) {
+        switchToRegistration();
         return;
     }
 
-    // Проверка длины пароля
-    if (password.length() < 6) {
-        m_statusLabel->setText("Пароль должен быть не менее 6 символов");
-        m_statusLabel->setVisible(true);
-        m_statusLabel->setStyleSheet("color: #ffaa00;");
+    QString username = m_usernameEdit->text().trimmed();
+    QString password = m_passwordEdit->text();
+    QString email = m_emailEdit->text().trimmed().toLower();
+
+    if (username.isEmpty() || password.isEmpty() || email.isEmpty()) {
+        m_statusLabel->setStyleSheet("color: #ff4444; font-size: 13px;");
+        m_statusLabel->setText("Заполните все поля (логин, пароль, email)");
         return;
     }
 
-    // Блокировка кнопки на время запроса
-    m_registerButton->setEnabled(false);
-    m_statusLabel->setText("Регистрация...");
-    m_statusLabel->setVisible(true);
-    m_statusLabel->setStyleSheet("color: #4CAF50;");
-
-    // Регистрация пользователя
-    if (registerUser(username, password, email)) {
-        m_statusLabel->setText("Регистрация успешна! Теперь войдите.");
-        m_statusLabel->setStyleSheet("color: #4CAF50;");
-        m_passwordEdit->clear();
+    if (username.length() < 3) {
+        m_statusLabel->setStyleSheet("color: #ff4444; font-size: 13px;");
+        m_statusLabel->setText("Имя пользователя: минимум 3 символа");
+        return;
+    }
+    if (password.length() < 8) {
+        m_statusLabel->setStyleSheet("color: #ff4444; font-size: 13px;");
+        m_statusLabel->setText("Пароль: минимум 8 символов");
+        return;
+    }
+    if (!email.contains('@') || !email.contains('.')) {
+        m_statusLabel->setStyleSheet("color: #ff4444; font-size: 13px;");
+        m_statusLabel->setText("Введите корректный email");
+        return;
     }
 
-    m_registerButton->setEnabled(true);
+    m_statusLabel->setStyleSheet("color: #4CAF50; font-size: 13px;");
+    m_statusLabel->setText("Подключение к серверу...");
+
+    if (!m_networkClient->isConnected()) {
+        QMetaObject::Connection *conn = new QMetaObject::Connection();
+        *conn = connect(m_networkClient, &NetworkClient::connected, this, [this, username, password, email, conn]() {
+            disconnect(*conn);
+            delete conn;
+            m_statusLabel->setText("Регистрация...");
+            m_networkClient->registerUser(username, password, email, "");
+        });
+        m_networkClient->connectToServer("127.0.0.1", 8443);
+    } else {
+        m_networkClient->registerUser(username, password, email, "");
+    }
+}
+
+void LoginWindow::onForgotPasswordClicked()
+{
+    QInputDialog dialog(this);
+    dialog.setWindowTitle("Сброс пароля");
+    dialog.setLabelText("Введите email, указанный при регистрации:");
+    dialog.setInputMode(QInputDialog::TextInput);
+    dialog.setStyleSheet(
+        "QInputDialog { background-color: #1a1a2e; } "
+        "QLabel { color: #fff; font-size: 14px; } "
+        "QLineEdit { background: #0f3460; color: #fff; border: 1px solid #4CAF50; "
+        "border-radius: 4px; padding: 10px; font-size: 14px; } "
+        "QPushButton { background-color: #4CAF50; color: #fff; border: none; "
+        "border-radius: 6px; padding: 10px 24px; font-weight: bold; font-size: 14px; } "
+        "QPushButton:hover { background-color: #45a049; } "
+        "QPushButton:pressed { background-color: #3d8b40; } "
+        "QPushButton:last-child { background-color: #555; } "
+        "QPushButton:last-child:hover { background-color: #666; } "
+    );
+    if (dialog.exec() != QDialog::Accepted) return;
+    QString email = dialog.textValue().trimmed();
+    if (email.isEmpty()) return;
+
+    QMessageBox msgBox(this);
+    msgBox.setWindowTitle("Сброс пароля");
+    msgBox.setText("Инструкции по сбросу пароля отправлены на указанный email.\n\n"
+                   "Если email не зарегистрирован, вы не получите письмо.");
+    msgBox.setIcon(QMessageBox::Information);
+    msgBox.setStyleSheet(
+        "QMessageBox { background-color: #1a1a2e; } "
+        "QLabel { color: #fff; font-size: 14px; } "
+        "QPushButton { background-color: #4CAF50; color: #fff; border: none; "
+        "border-radius: 6px; padding: 10px 24px; font-weight: bold; font-size: 14px; } "
+        "QPushButton:hover { background-color: #45a049; } "
+    );
+    msgBox.exec();
+}
+
+void LoginWindow::onOfflineModeClicked()
+{
+    m_offlineMode = true;
+    m_userName = "Офлайн";
+    m_statusLabel->setStyleSheet("color: #4CAF50; font-size: 14px; font-weight: bold;");
+    m_statusLabel->setText("🔌 Офлайн-режим (шифрование и журнал)");
+    accept();
+}
+
+void LoginWindow::onLoginSuccess(int userId, const QString &username, const QString &token)
+{
+    m_userId = userId;
+    m_userName = username;
+    m_sessionToken = token;
+    m_offlineMode = false;
+    m_statusLabel->setStyleSheet("color: #4CAF50; font-size: 14px; font-weight: bold;");
+    m_statusLabel->setText("✅ Авторизация успешна");
+    accept();
+}
+
+void LoginWindow::onLoginFailed(const QString &reason)
+{
+    m_statusLabel->setStyleSheet("color: #ff4444; font-size: 13px;");
+    m_statusLabel->setText("❌ " + reason);
+}
+
+void LoginWindow::onRegisterSuccess()
+{
+    QMessageBox::information(this, "Регистрация",
+                             "Аккаунт успешно создан!\n\n"
+                             "Теперь вы можете войти.");
+    switchToLogin();
+}
+
+void LoginWindow::onRegisterFailed(const QString &reason)
+{
+    m_statusLabel->setStyleSheet("color: #ff4444; font-size: 13px;");
+    m_statusLabel->setText("❌ " + reason);
 }

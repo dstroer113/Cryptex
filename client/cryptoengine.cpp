@@ -5,6 +5,17 @@
 #include <QBuffer>
 #include <QRegularExpression>
 #include <QSslSocket>
+// OpenSSL headers included only in .cpp (not in .h) to avoid moc OOM
+#include <openssl/aes.h>
+#include <openssl/evp.h>
+#include <openssl/rand.h>
+#include <openssl/rsa.h>
+#include <openssl/pem.h>
+#include <openssl/err.h>
+#include <openssl/sha.h>
+#include <openssl/hmac.h>
+#include <openssl/kdf.h>
+#include <openssl/crypto.h>
 
 CryptoEngine::CryptoEngine(QObject *parent)
     : QObject(parent)
@@ -201,8 +212,11 @@ QByteArray CryptoEngine::encryptData(const QByteArray &data)
 {
     QMutexLocker locker(&m_mutex);
 
-    QByteArray key = generateSecureSalt();
-    key = QCryptographicHash::hash(key, QCryptographicHash::Sha256);
+    // БАГОФИКС: соль (16 байт) сохраняется в результате для возможности расшифровки.
+    // Раньше ключ генерировался из случайной соли, которая нигде не сохранялась,
+    // что делало decryptData неработоспособным.
+    QByteArray salt = generateSecureSalt();
+    QByteArray key = QCryptographicHash::hash(salt, QCryptographicHash::Sha256);
 
     QByteArray nonce = generateSecureNonce();
     QByteArray ciphertext;
@@ -210,10 +224,13 @@ QByteArray CryptoEngine::encryptData(const QByteArray &data)
 
     if (!encryptAES256GCM(data, key, nonce, ciphertext, authTag)) {
         qWarning() << "[Crypto] Data encryption failed";
+        secureClearByteArray(key);
         return QByteArray();
     }
 
+    // Формат: salt(16) + nonce(12) + authTag(16) + ciphertext
     QByteArray result;
+    result.append(salt);
     result.append(nonce);
     result.append(authTag);
     result.append(ciphertext);
@@ -227,21 +244,23 @@ QByteArray CryptoEngine::decryptData(const QByteArray &encryptedData)
 {
     QMutexLocker locker(&m_mutex);
 
-    if (encryptedData.size() < 28) {
+    // БАГОФИКС: минимальный размер с учётом соли: salt(16) + nonce(12) + authTag(16) = 44 байта
+    if (encryptedData.size() < 44) {
         qWarning() << "[Crypto] Encrypted data too short";
         return QByteArray();
     }
 
-    QByteArray nonce = encryptedData.left(12);
-    QByteArray authTag = encryptedData.mid(12, 16);
-    QByteArray ciphertext = encryptedData.mid(28);
+    QByteArray salt = encryptedData.left(16);
+    QByteArray nonce = encryptedData.mid(16, 12);
+    QByteArray authTag = encryptedData.mid(28, 16);
+    QByteArray ciphertext = encryptedData.mid(44);
 
-    QByteArray key = generateSecureSalt();
-    key = QCryptographicHash::hash(key, QCryptographicHash::Sha256);
+    QByteArray key = QCryptographicHash::hash(salt, QCryptographicHash::Sha256);
 
     QByteArray plaintext;
     if (!decryptAES256GCM(ciphertext, key, nonce, authTag, plaintext)) {
         qWarning() << "[Crypto] Data decryption failed";
+        secureClearByteArray(key);
         return QByteArray();
     }
 
@@ -255,10 +274,12 @@ QByteArray CryptoEngine::deriveKeyFromPassword(const QString &password,
                                                int iterations)
 {
     QByteArray key(32, 0);
+    // БАГОФИКС: toUtf8() вызывается один раз во избежание двух временных объектов
+    QByteArray passwordUtf8 = password.toUtf8();
 
     if (PKCS5_PBKDF2_HMAC(
-            password.toUtf8().constData(),
-            password.toUtf8().size(),
+            passwordUtf8.constData(),
+            passwordUtf8.size(),
             reinterpret_cast<const unsigned char*>(salt.constData()),
             salt.size(),
             iterations,
@@ -533,8 +554,8 @@ bool CryptoEngine::encryptAES256GCM(const QByteArray &plaintext, const QByteArra
         return false;
     }
 
-    ciphertext.resize(len);
-
+    // БАГОФИКС: не сужаем буфер до Final_ex — ciphertext.data() + len
+    // должен указывать на валидную память, иначе UB даже при finalLen == 0.
     int finalLen = 0;
     if (EVP_EncryptFinal_ex(ctx, reinterpret_cast<unsigned char*>(ciphertext.data()) + len,
                             &finalLen) != 1) {
@@ -583,8 +604,7 @@ bool CryptoEngine::decryptAES256GCM(const QByteArray &ciphertext, const QByteArr
         return false;
     }
 
-    plaintext.resize(len);
-
+    // БАГОФИКС: не сужаем буфер до проверки тега и Final_ex.
     if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, authTag.size(),
                             const_cast<char*>(authTag.constData())) != 1) {
         EVP_CIPHER_CTX_free(ctx);
@@ -621,7 +641,7 @@ bool CryptoEngine::writeFileHeader(QFile &file, const FileHeader &header)
     out << header.originalSize;
     out << header.originalName;
 
-    return true;
+    return out.status() == QDataStream::Ok;
 }
 
 bool CryptoEngine::readFileHeader(QFile &file, FileHeader &header)
@@ -647,7 +667,9 @@ bool CryptoEngine::readFileHeader(QFile &file, FileHeader &header)
     in >> header.originalSize;
     in >> header.originalName;
 
-    return !in.atEnd();
+    // БАГОФИКС: проверка статуса потока вместо atEnd().
+    // atEnd() может вернуть true даже при ошибке чтения.
+    return in.status() == QDataStream::Ok;
 }
 
 bool CryptoEngine::isOpenSSLAvailable() const
